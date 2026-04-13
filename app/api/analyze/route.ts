@@ -1,7 +1,6 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { NextRequest, NextResponse } from 'next/server'
-import Anthropic from '@anthropic-ai/sdk'
 
 const TRADING_STYLE_PROMPTS: Record<string, string> = {
   scalping: `You are an expert scalp trader and technical analyst specializing in 1-5 minute timeframes. Focus on micro-patterns, momentum, order flow, candlestick signals, and immediate support/resistance. Identify high-probability setups where price can move quickly within minutes. Prioritize precision entry and exit levels.`,
@@ -124,6 +123,7 @@ You MUST respond with ONLY a valid JSON object — no markdown, no explanation. 
   ]
 }`
 
+  const { default: Anthropic } = await import('@anthropic-ai/sdk')
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
   const response = await anthropic.messages.create({
