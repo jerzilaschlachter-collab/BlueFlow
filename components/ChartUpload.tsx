@@ -138,10 +138,10 @@ export default function ChartUpload({ disabled, tradingStyle, onAnalysisComplete
   }
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
-      <div className="p-6 border-b border-zinc-800">
-        <h2 className="text-white font-semibold text-lg">Upload Chart</h2>
-        <p className="text-zinc-500 text-sm mt-0.5">
+    <div className="bg-white border border-[#E2E8F0] rounded-2xl overflow-hidden shadow-[0_1px_4px_rgba(0,0,0,0.06)]">
+      <div className="p-6 border-b border-[#E2E8F0]">
+        <h2 className="text-[#0A0E27] font-semibold text-lg">Upload Chart</h2>
+        <p className="text-[#64748B] text-sm mt-0.5">
           Drop a JPG or PNG — AI will analyze it for your {tradingStyle} setup
         </p>
       </div>
@@ -155,12 +155,12 @@ export default function ChartUpload({ disabled, tradingStyle, onAnalysisComplete
           onClick={() => !disabled && !isLoading && fileInputRef.current?.click()}
           className={`relative border-2 border-dashed rounded-xl transition-all cursor-pointer min-h-[220px] flex items-center justify-center overflow-hidden ${
             disabled
-              ? 'border-zinc-800 cursor-not-allowed opacity-50'
+              ? 'border-[#E2E8F0] cursor-not-allowed opacity-50'
               : dragOver
               ? 'border-[#00AAFF] bg-[#00AAFF]/5'
               : isLoading
-              ? 'border-zinc-700 cursor-default'
-              : 'border-zinc-700 hover:border-zinc-600 hover:bg-zinc-800/50'
+              ? 'border-[#CBD5E1] cursor-default'
+              : 'border-[#CBD5E1] hover:border-[#94A3B8] hover:bg-[#F8FAFC]'
           }`}
         >
           <input
@@ -180,9 +180,9 @@ export default function ChartUpload({ disabled, tradingStyle, onAnalysisComplete
             />
           ) : (
             <div className="text-center p-8">
-              <div className="w-14 h-14 rounded-2xl gradient-bg/20 border border-zinc-700 flex items-center justify-center mx-auto mb-4">
+              <div className="w-14 h-14 rounded-2xl bg-[#F1F5F9] border border-[#E2E8F0] flex items-center justify-center mx-auto mb-4">
                 <svg
-                  className="w-7 h-7 text-zinc-400"
+                  className="w-7 h-7 text-[#94A3B8]"
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
@@ -195,16 +195,16 @@ export default function ChartUpload({ disabled, tradingStyle, onAnalysisComplete
                   />
                 </svg>
               </div>
-              <p className="text-white font-medium mb-1">Drop chart here</p>
-              <p className="text-zinc-500 text-sm">or click to browse — JPG, PNG up to 10 MB</p>
+              <p className="text-[#0A0E27] font-medium mb-1">Drop chart here</p>
+              <p className="text-[#64748B] text-sm">or click to browse — JPG, PNG up to 10 MB</p>
             </div>
           )}
 
           {/* Loading overlay */}
           {isLoading && (
-            <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center gap-3">
+            <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center gap-3">
               <div className="w-10 h-10 border-2 border-[#0033CC] border-t-[#00AAFF] rounded-full animate-spin" />
-              <p className="text-white text-sm font-medium">{statusMessages[uploadState]}</p>
+              <p className="text-[#0A0E27] text-sm font-medium">{statusMessages[uploadState]}</p>
             </div>
           )}
         </div>
@@ -213,7 +213,7 @@ export default function ChartUpload({ disabled, tradingStyle, onAnalysisComplete
         {error && (
           <div className="mt-4 flex items-start gap-2.5 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3">
             <svg
-              className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0"
+              className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -225,7 +225,7 @@ export default function ChartUpload({ disabled, tradingStyle, onAnalysisComplete
                 d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
               />
             </svg>
-            <p className="text-red-400 text-sm">{error}</p>
+            <p className="text-red-500 text-sm">{error}</p>
           </div>
         )}
 
@@ -233,7 +233,7 @@ export default function ChartUpload({ disabled, tradingStyle, onAnalysisComplete
           <div className="mt-4 flex items-center justify-between bg-green-500/10 border border-green-500/20 rounded-xl px-4 py-3">
             <div className="flex items-center gap-2">
               <svg
-                className="w-4 h-4 text-green-400"
+                className="w-4 h-4 text-green-600"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -245,11 +245,11 @@ export default function ChartUpload({ disabled, tradingStyle, onAnalysisComplete
                   d="M5 13l4 4L19 7"
                 />
               </svg>
-              <p className="text-green-400 text-sm font-medium">Analysis complete — see results below</p>
+              <p className="text-green-600 text-sm font-medium">Analysis complete — see results below</p>
             </div>
             <button
               onClick={reset}
-              className="text-zinc-400 text-sm hover:text-white transition-colors"
+              className="text-[#64748B] text-sm hover:text-[#0A0E27] transition-colors"
             >
               Analyze another
             </button>
@@ -257,7 +257,7 @@ export default function ChartUpload({ disabled, tradingStyle, onAnalysisComplete
         )}
 
         {disabled && !isLoading && uploadState !== 'done' && (
-          <p className="mt-4 text-amber-400 text-sm text-center">
+          <p className="mt-4 text-amber-500 text-sm text-center">
             Upload disabled — monthly limit reached.{' '}
             <a href="/pricing" className="text-[#00AAFF] hover:underline">
               Upgrade to Pro

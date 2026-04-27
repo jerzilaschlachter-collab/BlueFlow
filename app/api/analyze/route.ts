@@ -1,190 +1,264 @@
-import { createServerClient, type CookieOptions } from '@supabase/ssr'
-import { cookies } from 'next/headers'
 import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
+import { Anthropic } from '@anthropic-ai/sdk'
+import sharp from 'sharp'
 
-const TRADING_STYLE_PROMPTS: Record<string, string> = {
-  scalping: `You are an expert scalp trader and technical analyst specializing in 1-5 minute timeframes. Focus on micro-patterns, momentum, order flow, candlestick signals, and immediate support/resistance. Identify high-probability setups where price can move quickly within minutes. Prioritize precision entry and exit levels.`,
-  day: `You are an expert day trader and technical analyst. Focus on intraday patterns, VWAP levels, session highs/lows, opening range breakouts, and key intraday support/resistance zones. Analyze setups that resolve within the trading session. Consider volume, momentum, and trend continuation/reversal signals.`,
-  swing: `You are an expert swing trader and technical analyst. Focus on multi-day to multi-week patterns, major support and resistance zones, trend structure, and classic chart patterns. Identify high-probability swing setups with clear risk/reward ratios. Analyze momentum, confluence zones, and key structural levels.`,
-  position: `You are an expert position trader and technical analyst specializing in weekly and monthly timeframes. Focus on long-term trend analysis, major structural levels, macro chart patterns, and high-timeframe support/resistance. Identify key turning points and sustained trend setups that play out over weeks to months.`,
+export const maxDuration = 60
+
+// Usage limits per tier
+const USAGE_LIMITS: Record<string, number> = {
+  free: 2,
+  pro: 60,
+  elite: 200,
+}
+
+// Trading style specific instructions
+const STYLE_INSTRUCTIONS: Record<string, string> = {
+  smc: `Focus your analysis on Smart Money Concepts: order blocks, Fair Value Gaps (FVGs), liquidity levels, Break of Structure (BOS), Change of Character (CHoCH), premium/discount zones, and inducement moves. Identify where institutions are accumulating or distributing. Mark order blocks, liquidity voids, and institutional levels.`,
+
+  price_action: `Focus your analysis on pure price action: candlestick patterns, wick rejections, market structure breaks, clean support and resistance. Identify where price is accepting or rejecting levels. Look for confluence of multiple price action signals.`,
+
+  indicators: `Focus your analysis on technical indicators: RSI, MACD, Moving Averages, divergences, overbought/oversold conditions, and indicator confluence. Use indicators to confirm price structure and identify momentum shifts.`,
+
+  elliott_wave: `Focus your analysis on Elliott Wave Theory: identify wave counts, apply Fibonacci ratios, distinguish between impulse and corrective structures, establish invalidation levels, and forecast likely targets based on wave relationships.`,
+
+  wyckoff: `Focus your analysis on Wyckoff methodology: identify accumulation and distribution phases, spot springs, upthrusts, signs of strength (SOS), signs of weakness (SOW), and schematic pattern development.`,
+
+  mixed: `Provide comprehensive analysis using all methods: Smart Money Concepts (order blocks, FVGs, liquidity), price action (candlesticks, structure), indicators (RSI, MACD, MAs), Elliott Wave structure, and Wyckoff phases.`,
 }
 
 export async function POST(request: NextRequest) {
-  const cookieStore = cookies()
+  try {
+    // Get authenticated user
+    const supabase = createClient()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll()
-        },
-        setAll(cookiesToSet: Array<{ name: string; value: string; options: CookieOptions }>) {
-          cookiesToSet.forEach(({ name, value, options }) =>
-            cookieStore.set(name, value, options)
-          )
-        },
-      },
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-  )
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+    // Get user profile
+    const { data: userProfile, error: profileError } = await supabase
+      .from('users')
+      .select('id, subscription_tier, trading_style, analyses_used_this_month, monthly_reset_date')
+      .eq('id', user.id)
+      .single()
 
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+    if (profileError || !userProfile) {
+      return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
+    }
 
-  const { data: userProfile } = await supabase
-    .from('users')
-    .select('*')
-    .eq('id', user.id)
-    .single()
+    // Check and reset monthly counter if needed
+    const resetDate = new Date(userProfile.monthly_reset_date || new Date())
+    const now = new Date()
+    let usageCount = userProfile.analyses_used_this_month || 0
 
-  if (!userProfile) {
-    return NextResponse.json({ error: 'User profile not found' }, { status: 404 })
-  }
+    if (
+      now.getMonth() !== resetDate.getMonth() ||
+      now.getFullYear() !== resetDate.getFullYear()
+    ) {
+      await supabase
+        .from('users')
+        .update({ analyses_used_this_month: 0, monthly_reset_date: now.toISOString() })
+        .eq('id', user.id)
+      usageCount = 0
+    }
 
-  // Check and reset monthly counter if needed
-  const resetDate = new Date(userProfile.monthly_reset_date)
-  const now = new Date()
-  if (
-    now.getMonth() !== resetDate.getMonth() ||
-    now.getFullYear() !== resetDate.getFullYear()
-  ) {
+    // Check usage limits
+    const tier = (userProfile.subscription_tier || 'free') as string
+    const limit = USAGE_LIMITS[tier] || USAGE_LIMITS.free
+
+    if (usageCount >= limit) {
+      const usageRemaining = 0
+      return NextResponse.json(
+        {
+          error: `Monthly limit of ${limit} analyses reached for ${tier} tier. Upgrade to analyze more charts.`,
+          limitReached: true,
+          usageRemaining,
+        },
+        { status: 403 }
+      )
+    }
+
+    // Parse FormData
+    const formData = await request.formData()
+    const imageFile = formData.get('image') as File | null
+    const asset = (formData.get('asset') as string) || 'Unknown Asset'
+
+    if (!imageFile) {
+      return NextResponse.json({ error: 'Image field is required' }, { status: 400 })
+    }
+
+    // Validate MIME type before processing
+    const mimeType = imageFile.type as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
+    if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(mimeType)) {
+      return NextResponse.json({ error: 'Invalid image format' }, { status: 400 })
+    }
+
+    // Convert image to base64, resizing to max 800px to reduce token cost
+    const rawBuffer = Buffer.from(await imageFile.arrayBuffer())
+    const resizedBuffer = await sharp(rawBuffer)
+      .resize({ width: 800, height: 800, fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 75 })
+      .toBuffer()
+    const base64Image = resizedBuffer.toString('base64')
+
+    // Get trading style and style-specific instructions
+    const tradingStyle = userProfile.trading_style || 'mixed'
+    const styleInstructions = STYLE_INSTRUCTIONS[tradingStyle] || STYLE_INSTRUCTIONS.mixed
+
+    // Build system prompt
+    const systemPrompt = `You are BlueFlow, an AI trading analyst. Return ONLY valid JSON, no extra text.
+
+${styleInstructions}
+
+Return exactly this JSON schema:
+{"is_valid_chart":true,"summary":"headline","timeframe_detected":"TF","asset_detected":"asset","market_context":"1-2 sentences","trend":{"direction":"Bullish|Bearish|Sideways","strength":"Strong|Moderate|Weak","phase":"Impulse|Correction|Consolidation|Reversal","description":"sentence"},"structure":{"highs_lows":"brief","last_significant_move":"brief","current_position":"brief"},"key_levels":{"major_resistance":[{"price":"level","strength":"Strong|Moderate|Weak","reason":"brief"}],"major_support":[{"price":"level","strength":"Strong|Moderate|Weak","reason":"brief"}],"immediate_resistance":"level","immediate_support":"level","key_note":"sentence"},"pattern":{"detected":true,"name":"name or None","completion":"Complete|Forming|Broken","implication":"brief","invalidation":"brief"},"momentum":{"current":"Increasing|Decreasing|Neutral","description":"sentence","divergence":"brief or None"},"bias":{"direction":"Bullish|Bearish|Neutral","confidence_score":75,"short_term":"Bullish|Bearish|Neutral","medium_term":"Bullish|Bearish|Neutral","reasoning":"2 sentences"},"trade_setup":{"setup_quality":"A+|A|B|C|No Setup","entry_type":"Limit|Market|Wait","entry_zone":"price","entry_reasoning":"brief","stop_loss":"price","stop_reasoning":"brief","take_profit_1":"price","take_profit_2":"price","take_profit_3":"price or null","risk_reward":"1:2","position_sizing_note":"brief"},"checklist":{"trend_confirmed":true,"key_level_identified":true,"pattern_valid":true,"risk_reward_acceptable":true,"entry_timing_clear":true,"stop_loss_logical":true,"no_major_news_risk":true},"style_specific_notes":"3-4 sentences","scenarios":{"bullish_scenario":"brief","bearish_scenario":"brief","key_decision_level":"price"},"annotations":[{"type":"horizontal_line","label":"≤15 chars","price_label":"price","color":"#EF4444 or #22C55E","style":"solid or dashed","y_percent":30},{"type":"zone","label":"name","color":"#EF444420 or #22C55E20","border_color":"#EF4444 or #22C55E","y_top_percent":20,"y_bottom_percent":35},{"type":"arrow","label":"Entry or Target","color":"#22C55E or #EF4444","direction":"up or down","y_percent":60,"x_percent":75}],"warning":null,"overall_grade":"A+|A|B|C|D","disclaimer":"Educational purposes only"}
+
+Include 4-6 annotations. y_percent: 0=top, 100=bottom.
+If not a chart: {"is_valid_chart":false,"error":"reason"}`
+
+    // Call Claude API with vision
+    const anthropic = new Anthropic({
+      apiKey: process.env.ANTHROPIC_API_KEY,
+    })
+
+    const response = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 3000,
+      system: [
+        {
+          type: 'text',
+          text: systemPrompt,
+          cache_control: { type: 'ephemeral' },
+        },
+      ],
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: 'image/jpeg',
+                data: base64Image,
+              },
+            },
+            {
+              type: 'text',
+              text: `Analyze this ${tradingStyle} trading chart${asset ? ` for ${asset}` : ''}. Return valid JSON only.`,
+            },
+          ],
+        },
+      ],
+    })
+
+    const { input_tokens, output_tokens } = response.usage
+    const cache_read = (response.usage as unknown as Record<string, number>).cache_read_input_tokens ?? 0
+    console.log(`[analyze] tokens — input: ${input_tokens}, output: ${output_tokens}, cache_read: ${cache_read}`)
+
+    // Extract and parse JSON response
+    const rawText = response.content[0].type === 'text' ? response.content[0].text : ''
+
+    let analysis
+    try {
+      const jsonMatch = rawText.match(/\{[\s\S]*\}/)
+      if (!jsonMatch) throw new Error('No JSON found in response')
+      analysis = JSON.parse(jsonMatch[0])
+    } catch (error) {
+      return NextResponse.json(
+        { error: 'Failed to parse AI response as JSON' },
+        { status: 500 }
+      )
+    }
+
+    // Check if valid chart
+    if (!analysis.is_valid_chart) {
+      return NextResponse.json(
+        { error: analysis.error || 'Not a valid trading chart' },
+        { status: 400 }
+      )
+    }
+
+    // Upload image to Supabase storage (non-blocking — analysis proceeds even if upload fails)
+    let chartImageUrl = ''
+    try {
+      const timestamp = Date.now()
+      const fileName = `${user.id}/${timestamp}.jpg`
+
+      const { error: uploadError } = await supabase.storage
+        .from('chart-images')
+        .upload(fileName, resizedBuffer, {
+          contentType: 'image/jpeg',
+          upsert: false,
+        })
+
+      if (uploadError) {
+        console.error('Storage upload error (non-fatal):', uploadError)
+      } else {
+        const { data: publicUrl } = supabase.storage
+          .from('chart-images')
+          .getPublicUrl(fileName)
+        chartImageUrl = publicUrl.publicUrl
+      }
+    } catch (storageErr) {
+      console.error('Storage exception (non-fatal):', storageErr)
+    }
+
+    // Save analysis to database
+    const { data: savedAnalysis, error: insertError } = await supabase
+      .from('analyses')
+      .insert({
+        user_id: user.id,
+        image_url: chartImageUrl || '',
+        chart_image_url: chartImageUrl || null,
+        trading_style: tradingStyle,
+        result: analysis,
+        bias: (analysis.bias?.direction || 'neutral').toLowerCase(),
+        confidence_score: analysis.bias?.confidence_score || 0,
+        trend: analysis.trend?.direction || null,
+        pattern: analysis.pattern?.name || null,
+        key_levels: analysis.key_levels || null,
+        raw_analysis: JSON.stringify(analysis),
+        outcome: 'pending',
+      })
+      .select('id, created_at')
+      .single()
+
+    if (insertError || !savedAnalysis) {
+      console.error('Database insert error:', insertError)
+      return NextResponse.json(
+        { error: 'Failed to save analysis' },
+        { status: 500 }
+      )
+    }
+
+    // Increment usage counter
     await supabase
       .from('users')
-      .update({ analyses_used_this_month: 0, monthly_reset_date: now.toISOString() })
+      .update({ analyses_used_this_month: usageCount + 1 })
       .eq('id', user.id)
-    userProfile.analyses_used_this_month = 0
-  }
 
-  // Enforce free tier limit
-  if (userProfile.subscription_tier === 'free' && userProfile.analyses_used_this_month >= 2) {
+    // Calculate remaining usage
+    const usageRemaining = limit - (usageCount + 1)
+
+    return NextResponse.json({
+      success: true,
+      analysis,
+      analysisId: savedAnalysis.id,
+      chartImageUrl,
+      createdAt: savedAnalysis.created_at,
+      usageRemaining,
+    })
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    console.error('Analyze endpoint error:', error)
     return NextResponse.json(
-      {
-        error: 'Monthly limit reached. Upgrade to Pro for unlimited analyses.',
-        limitReached: true,
-      },
-      { status: 403 }
+      { error: `Internal server error: ${msg}` },
+      { status: 500 }
     )
   }
-
-  const body = await request.json()
-  const { imagePath } = body
-
-  if (!imagePath) {
-    return NextResponse.json({ error: 'imagePath is required' }, { status: 400 })
-  }
-
-  // Download image from Supabase storage
-  const { data: imageData, error: downloadError } = await supabase.storage
-    .from('charts')
-    .download(imagePath)
-
-  if (downloadError || !imageData) {
-    return NextResponse.json({ error: 'Failed to retrieve image from storage' }, { status: 500 })
-  }
-
-  const arrayBuffer = await imageData.arrayBuffer()
-  const base64 = Buffer.from(arrayBuffer).toString('base64')
-  const mimeType: 'image/jpeg' | 'image/png' = imagePath.toLowerCase().endsWith('.png')
-    ? 'image/png'
-    : 'image/jpeg'
-
-  // Get public URL for storing in the analysis record
-  const {
-    data: { publicUrl },
-  } = supabase.storage.from('charts').getPublicUrl(imagePath)
-
-  const tradingStyle = userProfile.trading_style || 'swing'
-  const basePrompt = TRADING_STYLE_PROMPTS[tradingStyle] ?? TRADING_STYLE_PROMPTS.swing
-
-  const systemPrompt = `${basePrompt}
-
-You MUST respond with ONLY a valid JSON object — no markdown, no explanation. Use exactly this structure:
-{
-  "trend": "clear description of the current trend direction and strength",
-  "key_levels": {
-    "support": ["level with brief context", "level with brief context"],
-    "resistance": ["level with brief context", "level with brief context"]
-  },
-  "pattern": "identified chart pattern name and brief description",
-  "bias": "bullish" or "bearish" or "neutral",
-  "confidence_score": integer between 0 and 100,
-  "pre_trade_checklist": [
-    "condition to verify before entering",
-    "condition to verify before entering",
-    "condition to verify before entering",
-    "condition to verify before entering",
-    "condition to verify before entering"
-  ]
-}`
-
-  const { default: Anthropic } = await import('@anthropic-ai/sdk')
-  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-
-  const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 1500,
-    system: systemPrompt,
-    messages: [
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'image',
-            source: {
-              type: 'base64',
-              media_type: mimeType,
-              data: base64,
-            },
-          },
-          {
-            type: 'text',
-            text: `Analyze this ${tradingStyle} trading chart and provide your analysis as a JSON object.`,
-          },
-        ],
-      },
-    ],
-  })
-
-  const rawText = response.content[0].type === 'text' ? response.content[0].text : ''
-
-  let analysisData
-  try {
-    const jsonMatch = rawText.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) throw new Error('No JSON in response')
-    analysisData = JSON.parse(jsonMatch[0])
-  } catch {
-    return NextResponse.json({ error: 'Failed to parse AI response' }, { status: 500 })
-  }
-
-  // Save to database
-  const { data: savedAnalysis } = await supabase
-    .from('analyses')
-    .insert({
-      user_id: user.id,
-      image_url: publicUrl,
-      trend: analysisData.trend,
-      key_levels: analysisData.key_levels,
-      pattern: analysisData.pattern,
-      bias: analysisData.bias,
-      confidence_score: analysisData.confidence_score,
-      pre_trade_checklist: analysisData.pre_trade_checklist,
-      raw_analysis: rawText,
-      trading_style: tradingStyle,
-    })
-    .select()
-    .single()
-
-  // Increment usage counter
-  await supabase
-    .from('users')
-    .update({ analyses_used_this_month: userProfile.analyses_used_this_month + 1 })
-    .eq('id', user.id)
-
-  return NextResponse.json({ analysis: analysisData, id: savedAnalysis?.id, image_url: publicUrl, created_at: savedAnalysis?.created_at })
 }
