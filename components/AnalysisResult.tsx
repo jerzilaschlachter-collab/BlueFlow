@@ -617,7 +617,7 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({
                 <div>
                   <p className="text-xs text-red-500 uppercase font-semibold mb-2">Resistance Levels</p>
                   <div className="flex flex-wrap gap-2">
-                    {analysis.key_levels.resistance.map((level: { price: number; strength: string; reason: string }, idx) => {
+                    {analysis.key_levels.resistance.map((level: { price: number; strength: string; reason: string }, idx: number) => {
                       const key = `r-${idx}`;
                       return (
                         <div key={idx}>
@@ -644,7 +644,7 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({
                 <div>
                   <p className="text-xs text-green-600 uppercase font-semibold mb-2">Support Levels</p>
                   <div className="flex flex-wrap gap-2">
-                    {analysis.key_levels.support.map((level: { price: number; strength: string; reason: string }, idx) => {
+                    {analysis.key_levels.support.map((level: { price: number; strength: string; reason: string }, idx: number) => {
                       const key = `s-${idx}`;
                       return (
                         <div key={idx}>
