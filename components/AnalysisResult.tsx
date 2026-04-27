@@ -307,7 +307,7 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({
     pattern: { detected: false, name: '', completion: '', implication: '', invalidation: '', ...(a.pattern || {}) },
     trade_setup: {
       setup_quality: '—', entry_zone: '—', entry_type: '—', entry_reasoning: '',
-      stop_loss: 0, tp1: 0, tp2: 0, tp3: 0, risk_reward: '—', position_sizing_note: '',
+      stop_loss: 0, risk_reward: '—', position_sizing_note: '',
       ...(a.trade_setup || {}),
       tp1: a.trade_setup?.tp1 ?? a.trade_setup?.take_profit_1 ?? 0,
       tp2: a.trade_setup?.tp2 ?? a.trade_setup?.take_profit_2 ?? 0,
