@@ -287,7 +287,7 @@ function AnalysisModal({
         {/* Analysis result */}
         <div style={{ padding: '16px 24px' }}>
           <AnalysisResult
-            analysis={r as Parameters<typeof AnalysisResult>[0]['analysis']}
+            analysis={r as unknown as Parameters<typeof AnalysisResult>[0]['analysis']}
             analysisId={analysis.id}
             onOutcomeUpdate={(outcome) => { setLocalOutcome(outcome as 'pending' | 'won' | 'lost'); onOutcomeUpdate(analysis.id, outcome) }}
           />
